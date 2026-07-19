@@ -22,18 +22,22 @@ type Config struct {
 	MySQLDSN string
 	// CookieSecure CookieにSecure属性を付与するかどうか
 	CookieSecure bool
+	// GoogleLoginURL Googleログインボタンの遷移先 (Cognito Hosted UIのauthorize URL)。
+	// 未設定の場合、ボタンはGoogle連携が未設定である旨の案内を表示する
+	GoogleLoginURL string
 }
 
 // Load 環境変数から設定を読み込み、必須項目の欠落があればエラーを返す
 func Load() (*Config, error) {
 	cfg := &Config{
-		Addr:         getenvDefault("ADDR", ":8080"),
-		AWSRegion:    os.Getenv("AWS_REGION"),
-		UserPoolID:   os.Getenv("COGNITO_USER_POOL_ID"),
-		ClientID:     os.Getenv("COGNITO_CLIENT_ID"),
-		ClientSecret: os.Getenv("COGNITO_CLIENT_SECRET"),
-		MySQLDSN:     os.Getenv("MYSQL_DSN"),
-		CookieSecure: os.Getenv("COOKIE_SECURE") == "true",
+		Addr:           getenvDefault("ADDR", ":8080"),
+		AWSRegion:      os.Getenv("AWS_REGION"),
+		UserPoolID:     os.Getenv("COGNITO_USER_POOL_ID"),
+		ClientID:       os.Getenv("COGNITO_CLIENT_ID"),
+		ClientSecret:   os.Getenv("COGNITO_CLIENT_SECRET"),
+		MySQLDSN:       os.Getenv("MYSQL_DSN"),
+		CookieSecure:   os.Getenv("COOKIE_SECURE") == "true",
+		GoogleLoginURL: os.Getenv("GOOGLE_LOGIN_URL"),
 	}
 	missing := []string{}
 	if cfg.AWSRegion == "" {

@@ -89,6 +89,53 @@ button.ghost {
   flex: 1;
 }
 
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1rem 0;
+  color: #8892a0;
+  font-size: 0.85rem;
+}
+
+.divider::before,
+.divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid #dde2e8;
+}
+
+.social-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.6rem 1rem;
+  border: 1px solid #c6ccd4;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: var(--color-text);
+  font-size: 1rem;
+  text-decoration: none;
+}
+
+.social-button:hover {
+  background: #f2f5f9;
+}
+
+.social-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 50%;
+  background: conic-gradient(#4285f4 0 25%, #34a853 25% 50%, #fbbc05 50% 75%, #ea4335 75% 100%);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
 .flash {
   margin-top: 1rem;
   padding: 0.75rem 1rem;

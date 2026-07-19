@@ -24,6 +24,7 @@ type fakeCognito struct {
 	initiateResult *cognito.AuthResult
 	initiateErr    error
 	initiateCalled bool
+	signUpCalled   bool
 	signUpEmail    string
 	confirmedEmail string
 	confirmedCode  string
@@ -32,6 +33,7 @@ type fakeCognito struct {
 }
 
 func (f *fakeCognito) SignUp(_ context.Context, email, _ string) error {
+	f.signUpCalled = true
 	f.signUpEmail = email
 	return f.signUpErr
 }
@@ -97,7 +99,7 @@ var testStatic = fstest.MapFS{
 // newTestServer 偽実装を注入したハンドラのテストサーバを起動する
 func newTestServer(t *testing.T, c *fakeCognito, r *fakeRepo, v *fakeVerifier) *httptest.Server {
 	t.Helper()
-	h, err := New(c, r, v, slog.New(slog.NewTextHandler(io.Discard, nil)), false)
+	h, err := New(c, r, v, slog.New(slog.NewTextHandler(io.Discard, nil)), false, "")
 	if err != nil {
 		t.Fatalf("ハンドラの生成に失敗しました: %v", err)
 	}
@@ -456,6 +458,88 @@ func TestSignupShowsConfirmForm(t *testing.T) {
 	}
 	if c.signUpEmail != "new@example.com" {
 		t.Errorf("SignUpへ渡されたメール = %q, want new@example.com", c.signUpEmail)
+	}
+}
+
+// TestSignupGoogleOnlyAccountGuided Google連携のみのメールでの登録を案内で遮断することを検証する。
+// このときCognitoへのSignUp呼び出しが発生しないことまで確認する
+func TestSignupGoogleOnlyAccountGuided(t *testing.T) {
+	c := &fakeCognito{}
+	r := &fakeRepo{
+		findByEmailUser: &repository.User{Sub: "sub-g", Email: "demo-google@example.com"},
+		findByEmailMethods: []repository.AuthMethod{
+			{UserSub: "sub-g", Method: repository.MethodGoogle, ProviderSub: "google-oauth2|111"},
+		},
+	}
+	srv := newTestServer(t, c, r, &fakeVerifier{})
+
+	resp := postForm(t, srv, "/api/signup", url.Values{
+		"email":    {"demo-google@example.com"},
+		"password": {"Passw0rd!"},
+	})
+	body := readBody(t, resp)
+	if !strings.Contains(body, "Googleログインで作成されています") {
+		t.Errorf("Google経路への案内が表示されていません: %q", body)
+	}
+	if c.signUpCalled {
+		t.Error("Google連携のみのメールに対してCognitoへSignUpが発生しています")
+	}
+}
+
+// TestGoogleLoginRedirectsWhenConfigured authorize URL設定時にGoogleボタンがリダイレクトすることを検証する
+func TestGoogleLoginRedirectsWhenConfigured(t *testing.T) {
+	h, err := New(&fakeCognito{}, &fakeRepo{}, &fakeVerifier{},
+		slog.New(slog.NewTextHandler(io.Discard, nil)), false,
+		"https://auth.example.com/oauth2/authorize?identity_provider=Google")
+	if err != nil {
+		t.Fatalf("ハンドラの生成に失敗しました: %v", err)
+	}
+	srv := httptest.NewServer(h.Routes(testStatic))
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/auth/google", nil)
+	if err != nil {
+		t.Fatalf("リクエストの生成に失敗しました: %v", err)
+	}
+	resp, err := noRedirectClient().Do(req)
+	if err != nil {
+		t.Fatalf("リクエストの送信に失敗しました: %v", err)
+	}
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			t.Errorf("レスポンスのクローズに失敗しました: %v", cerr)
+		}
+	}()
+
+	if resp.StatusCode != http.StatusFound {
+		t.Errorf("status = %d, want 302", resp.StatusCode)
+	}
+	want := "https://auth.example.com/oauth2/authorize?identity_provider=Google"
+	if got := resp.Header.Get("Location"); got != want {
+		t.Errorf("Location = %q, want %q", got, want)
+	}
+}
+
+// TestGoogleLoginUnconfiguredShowsNotice authorize URL未設定時に案内が表示されることを検証する
+func TestGoogleLoginUnconfiguredShowsNotice(t *testing.T) {
+	srv := newTestServer(t, &fakeCognito{}, &fakeRepo{}, &fakeVerifier{})
+
+	resp, err := noRedirectClient().Get(srv.URL + "/auth/google")
+	if err != nil {
+		t.Fatalf("リクエストの送信に失敗しました: %v", err)
+	}
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			t.Errorf("レスポンスのクローズに失敗しました: %v", cerr)
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+	body := readBody(t, resp)
+	if !strings.Contains(body, "Google連携を設定していません") {
+		t.Errorf("未設定の案内が表示されていません: %q", body)
 	}
 }
 

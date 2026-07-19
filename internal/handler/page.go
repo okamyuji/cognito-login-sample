@@ -7,9 +7,28 @@ import (
 	"github.com/okamyuji/cognito-login-sample/internal/repository"
 )
 
+// loginData ログイン画面の描画に使うデータ
+type loginData struct {
+	// Flash 画面表示時に出す案内メッセージ。空の場合は表示しない
+	Flash string
+}
+
 // loginPage ログイン画面を表示する
 func (h *Handler) loginPage(w http.ResponseWriter, r *http.Request) {
-	h.renderPage(w, "login", nil)
+	h.renderPage(w, "login", loginData{})
+}
+
+// googleLogin Googleログインボタンの遷移を処理する。
+// Hosted UIのauthorize URLが設定済みならリダイレクトし、
+// 未設定のサンプル構成では案内を表示する
+func (h *Handler) googleLogin(w http.ResponseWriter, r *http.Request) {
+	if h.googleLoginURL != "" {
+		http.Redirect(w, r, h.googleLoginURL, http.StatusFound)
+		return
+	}
+	h.renderPage(w, "login", loginData{
+		Flash: "このサンプル構成ではGoogle連携を設定していません。READMEの手順でCognitoのfederated IdPを有効化すると、ここからGoogleの認証画面へ遷移します。",
+	})
 }
 
 // signupPage 新規登録画面を表示する

@@ -18,7 +18,12 @@
       </div>
       <button type="submit">ログイン</button>
     </form>
-    <div id="result" aria-live="polite"></div>
+    <div class="divider">または</div>
+    <a class="social-button" href="/auth/google">
+      <span class="social-mark" aria-hidden="true">G</span>
+      Googleでログイン
+    </a>
+    <div id="result" aria-live="polite">{{if .Flash}}<div class="flash info">{{.Flash}}</div>{{end}}</div>
     <p class="note">アカウントをお持ちでない場合は<a href="/signup">新規登録</a>へ進んでください。</p>
   </main>
 </body>

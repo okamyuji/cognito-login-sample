@@ -61,7 +61,7 @@ func run(logger *slog.Logger) error {
 	verifier := token.NewJWKSVerifier(cfg.AWSRegion, cfg.UserPoolID, cfg.ClientID)
 	repo := repository.NewMySQLUserRepository(db)
 
-	h, err := handler.New(cognitoClient, repo, verifier, logger, cfg.CookieSecure)
+	h, err := handler.New(cognitoClient, repo, verifier, logger, cfg.CookieSecure, cfg.GoogleLoginURL)
 	if err != nil {
 		return err
 	}

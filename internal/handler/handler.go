@@ -21,29 +21,32 @@ var templateFS embed.FS
 // cognito.Client / repository.UserRepository / token.Verifier のいずれも
 // インターフェースであり、テストでは偽実装を注入する
 type Handler struct {
-	cognito      cognito.Client
-	repo         repository.UserRepository
-	verifier     token.Verifier
-	tmpl         *template.Template
-	logger       *slog.Logger
-	cookieSecure bool
-	limiter      *rateLimiter
+	cognito        cognito.Client
+	repo           repository.UserRepository
+	verifier       token.Verifier
+	tmpl           *template.Template
+	logger         *slog.Logger
+	cookieSecure   bool
+	googleLoginURL string
+	limiter        *rateLimiter
 }
 
-// New 依存を注入してHandlerを生成する
-func New(c cognito.Client, r repository.UserRepository, v token.Verifier, logger *slog.Logger, cookieSecure bool) (*Handler, error) {
+// New 依存を注入してHandlerを生成する。
+// googleLoginURL Cognito Hosted UIのauthorize URL。空の場合Googleログインボタンは未設定の案内を表示する
+func New(c cognito.Client, r repository.UserRepository, v token.Verifier, logger *slog.Logger, cookieSecure bool, googleLoginURL string) (*Handler, error) {
 	tmpl, err := template.ParseFS(templateFS, "templates/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("handler: テンプレートの読み込みに失敗しました: %w", err)
 	}
 	return &Handler{
-		cognito:      c,
-		repo:         r,
-		verifier:     v,
-		tmpl:         tmpl,
-		logger:       logger,
-		cookieSecure: cookieSecure,
-		limiter:      newRateLimiter(20, 60), // 1分あたり20リクエストをIP単位で許可する
+		cognito:        c,
+		repo:           r,
+		verifier:       v,
+		tmpl:           tmpl,
+		logger:         logger,
+		cookieSecure:   cookieSecure,
+		googleLoginURL: googleLoginURL,
+		limiter:        newRateLimiter(20, 60), // 1分あたり20リクエストをIP単位で許可する
 	}, nil
 }
 
@@ -53,6 +56,7 @@ func (h *Handler) Routes(staticFS fs.FS) http.Handler {
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(staticFS)))
 	mux.HandleFunc("GET /login", h.loginPage)
 	mux.HandleFunc("GET /signup", h.signupPage)
+	mux.HandleFunc("GET /auth/google", h.googleLogin)
 	mux.HandleFunc("POST /api/login", h.limiter.wrap(h.login))
 	mux.HandleFunc("POST /api/signup", h.limiter.wrap(h.signup))
 	mux.HandleFunc("POST /api/confirm", h.limiter.wrap(h.confirm))

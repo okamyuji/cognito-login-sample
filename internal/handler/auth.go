@@ -26,10 +26,30 @@ func validEmail(email string) bool {
 	return err == nil && addr.Address == email
 }
 
+// googleOnlyGuard Google連携のみのアカウントに対する案内を表示すべきか判定する。
+// パスワード認証情報を持たないアカウントにはCognitoへ問い合わせずに
+// 正しい経路を案内する (home realm discoveryの実演)。
+// 案内またはエラーを描画した場合はtrueを返し、呼び出し側は処理を打ち切る
+func (h *Handler) googleOnlyGuard(w http.ResponseWriter, r *http.Request, email string) bool {
+	_, methods, err := h.repo.FindByEmail(r.Context(), email)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return false
+		}
+		h.logger.Error("認証方式の確認に失敗しました", "error", err)
+		h.renderFlash(w, "error", "一時的なエラーが発生しました。しばらく待ってからやり直してください。")
+		return true
+	}
+	if !hasMethod(methods, repository.MethodPassword) && hasMethod(methods, repository.MethodGoogle) {
+		h.renderFlash(w, "info", "このアカウントはGoogleログインで作成されています。パスワードは設定されていないため、Googleでログインしてください。")
+		return true
+	}
+	return false
+}
+
 // login メール+パスワードによるログインを処理する。
 // Cognitoへ問い合わせる前にアプリDBの認証方式リンクを確認し、
 // Google連携のみのアカウントにはパスワード経路を案内で遮断する
-// (home realm discoveryの実演)
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	email := strings.TrimSpace(r.FormValue("email"))
 	password := r.FormValue("password")
@@ -37,17 +57,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		h.renderFlash(w, "error", "メールアドレスとパスワードを入力してください。")
 		return
 	}
-
-	// 認証方式リンクの確認。パスワード認証情報を持たないGoogle連携のみの
-	// アカウントに対しては、Cognitoへ問い合わせずに正しい経路を案内する
-	_, methods, err := h.repo.FindByEmail(r.Context(), email)
-	if err != nil && !errors.Is(err, repository.ErrNotFound) {
-		h.logger.Error("認証方式の確認に失敗しました", "error", err)
-		h.renderFlash(w, "error", "一時的なエラーが発生しました。しばらく待ってからやり直してください。")
-		return
-	}
-	if err == nil && !hasMethod(methods, repository.MethodPassword) && hasMethod(methods, repository.MethodGoogle) {
-		h.renderFlash(w, "info", "このアカウントはGoogleログインで作成されています。パスワードは設定されていないため、Googleでログインしてください。")
+	if h.googleOnlyGuard(w, r, email) {
 		return
 	}
 
@@ -108,12 +118,17 @@ func hasMethod(methods []repository.AuthMethod, method string) bool {
 	return false
 }
 
-// signup メール+パスワードによる仮登録を処理する
+// signup メール+パスワードによる仮登録を処理する。
+// 登録経路でもGoogle連携のみのメールを遮断する。ログイン側だけ守っても、
+// 登録からパスワード認証情報を生やせると経路の一貫性が崩れるため
 func (h *Handler) signup(w http.ResponseWriter, r *http.Request) {
 	email := strings.TrimSpace(r.FormValue("email"))
 	password := r.FormValue("password")
 	if !validEmail(email) || password == "" {
 		h.renderFlash(w, "error", "メールアドレスとパスワードを入力してください。")
+		return
+	}
+	if h.googleOnlyGuard(w, r, email) {
 		return
 	}
 	if err := h.cognito.SignUp(r.Context(), email, password); err != nil {
