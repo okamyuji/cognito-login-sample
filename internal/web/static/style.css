@@ -1,0 +1,134 @@
+:root {
+  --color-surface: #f6f7f9;
+  --color-card: #ffffff;
+  --color-text: #1c2430;
+  --color-accent: #2456c4;
+  --color-error: #b3261e;
+  --color-success: #1d6f42;
+  --color-info: #1a5a8a;
+  --space: clamp(1rem, 0.8rem + 1vw, 1.5rem);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Hiragino Sans", "Noto Sans JP", sans-serif;
+  background: var(--color-surface);
+  color: var(--color-text);
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: var(--space);
+}
+
+.card {
+  background: var(--color-card);
+  border-radius: 0.75rem;
+  box-shadow: 0 0.25rem 1.5rem rgb(0 0 0 / 8%);
+  padding: calc(var(--space) * 1.5);
+  width: clamp(18rem, 60vw, 32rem);
+}
+
+h1 {
+  font-size: clamp(1.25rem, 1rem + 1vw, 1.75rem);
+  margin-top: 0;
+}
+
+.stack {
+  display: grid;
+  gap: 0.75rem;
+}
+
+label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+input {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #c6ccd4;
+  border-radius: 0.5rem;
+  font-size: 1rem;
+}
+
+input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+button {
+  padding: 0.6rem 1rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+button:hover {
+  filter: brightness(1.1);
+}
+
+button.ghost {
+  background: transparent;
+  color: var(--color-accent);
+  border: 1px solid var(--color-accent);
+}
+
+.password-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.password-row input {
+  flex: 1;
+}
+
+.flash {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.flash.error {
+  background: #fdeceb;
+  color: var(--color-error);
+}
+
+.flash.success {
+  background: #e8f5ee;
+  color: var(--color-success);
+}
+
+.flash.info {
+  background: #e9f2fa;
+  color: var(--color-info);
+}
+
+.note {
+  font-size: 0.85rem;
+  color: #55606e;
+}
+
+.profile dt {
+  font-weight: 600;
+  margin-top: 0.75rem;
+}
+
+.profile dd {
+  margin-left: 0;
+}
+
+code {
+  background: #eef1f5;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+  font-size: 0.9em;
+  word-break: break-all;
+}

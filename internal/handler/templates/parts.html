@@ -1,0 +1,21 @@
+{{define "head"}}
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/htmx.min.js" defer></script>
+<script src="/static/alpine.min.js" defer></script>
+{{end}}
+
+{{define "flash"}}
+<div class="flash {{.Kind}}">{{.Message}}</div>
+{{end}}
+
+{{define "confirm_form"}}
+<div class="flash info">確認コードを {{.Email}} 宛に送信しました。メールに記載のコードを入力してください。</div>
+<form hx-post="/api/confirm" hx-target="#result" class="stack">
+  <input type="hidden" name="email" value="{{.Email}}">
+  <label for="code">確認コード</label>
+  <input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" required>
+  <button type="submit">確認する</button>
+</form>
+{{end}}

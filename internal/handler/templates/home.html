@@ -1,0 +1,36 @@
+{{define "home"}}
+<!doctype html>
+<html lang="ja">
+<head>
+  {{template "head" .}}
+  <title>ホーム | cognito-login-sample</title>
+</head>
+<body>
+  <main class="card">
+    <h1>ログイン済みページ</h1>
+    <p>このページはIDトークン (JWT) の検証を通過した場合にのみ表示されます。</p>
+    <dl class="profile">
+      <dt>メールアドレス</dt>
+      <dd>{{.Email}}</dd>
+      <dt>Cognito sub</dt>
+      <dd><code>{{.Sub}}</code></dd>
+      <dt>登録済みの認証方式</dt>
+      <dd>
+        {{if .Methods}}
+        <ul>
+          {{range .Methods}}
+          <li><code>{{.Method}}</code>{{if .ProviderSub}} (provider_sub: <code>{{.ProviderSub}}</code>){{end}}</li>
+          {{end}}
+        </ul>
+        {{else}}
+        <p>アプリデータベースに認証方式の記録がありません。</p>
+        {{end}}
+      </dd>
+    </dl>
+    <form hx-post="/api/logout">
+      <button type="submit">ログアウト</button>
+    </form>
+  </main>
+</body>
+</html>
+{{end}}

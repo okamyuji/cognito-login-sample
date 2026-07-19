@@ -1,0 +1,24 @@
+{{define "signup"}}
+<!doctype html>
+<html lang="ja">
+<head>
+  {{template "head" .}}
+  <title>新規登録 | cognito-login-sample</title>
+</head>
+<body>
+  <main class="card">
+    <h1>新規登録</h1>
+    <form hx-post="/api/signup" hx-target="#result" class="stack">
+      <label for="email">メールアドレス</label>
+      <input id="email" name="email" type="email" autocomplete="username" required>
+      <label for="password">パスワード</label>
+      <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required>
+      <p class="note">8文字以上で、英大文字・英小文字・数字を含めてください。</p>
+      <button type="submit">登録する</button>
+    </form>
+    <div id="result" aria-live="polite"></div>
+    <p class="note">登録済みの場合は<a href="/login">ログイン</a>へ進んでください。</p>
+  </main>
+</body>
+</html>
+{{end}}
