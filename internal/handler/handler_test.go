@@ -620,10 +620,11 @@ func TestCrossSitePostRejected(t *testing.T) {
 	}
 }
 
-// TestRepoFailureDoesNotLeakDetails リポジトリ障害時に内部情報を漏らさない汎用メッセージを返すことを検証する
+// TestRepoFailureDoesNotLeakDetails リポジトリ障害時に内部情報を漏らさない汎用メッセージを返し、Cognitoへ問い合わせないことを検証する
 func TestRepoFailureDoesNotLeakDetails(t *testing.T) {
+	c := &fakeCognito{}
 	r := &fakeRepo{findByEmailErr: errors.New("dial tcp 10.0.0.5:3306: connection refused")}
-	srv := newTestServer(t, &fakeCognito{}, r, &fakeVerifier{})
+	srv := newTestServer(t, c, r, &fakeVerifier{})
 
 	resp := postForm(t, srv, "/api/login", url.Values{
 		"email":    {"user@example.com"},
@@ -635,5 +636,8 @@ func TestRepoFailureDoesNotLeakDetails(t *testing.T) {
 	}
 	if !strings.Contains(body, "一時的なエラーが発生しました") {
 		t.Errorf("汎用メッセージが表示されていません: %q", body)
+	}
+	if c.initiateCalled {
+		t.Error("リポジトリ障害時にCognitoへ認証問い合わせが発生しています")
 	}
 }
