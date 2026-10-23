@@ -543,18 +543,191 @@ func TestGoogleLoginUnconfiguredShowsNotice(t *testing.T) {
 	}
 }
 
-// TestSignupExistingUserNonCommittal 登録済みメールでも存在を断定しない文言を返すことを検証する (列挙防止)
-func TestSignupExistingUserNonCommittal(t *testing.T) {
-	c := &fakeCognito{signUpErr: cognito.ErrUsernameExists}
-	srv := newTestServer(t, c, &fakeRepo{}, &fakeVerifier{})
-
+// signupResponse 指定したSignUpの結果を返す偽Cognitoで仮登録を送り、ステータスとボディを返す
+func signupResponse(t *testing.T, signUpErr error) (int, string) {
+	t.Helper()
+	srv := newTestServer(t, &fakeCognito{signUpErr: signUpErr}, &fakeRepo{}, &fakeVerifier{})
 	resp := postForm(t, srv, "/api/signup", url.Values{
-		"email":    {"existing@example.com"},
+		"email":    {"someone@example.com"},
 		"password": {"Passw0rd!"},
 	})
+	return resp.StatusCode, readBody(t, resp)
+}
+
+// TestSignupExistingUserIndistinguishable 登録済みメールでも未登録と同じ応答を返すことを検証する (列挙防止)
+func TestSignupExistingUserIndistinguishable(t *testing.T) {
+	newStatus, newBody := signupResponse(t, nil)
+	existingStatus, existingBody := signupResponse(t, cognito.ErrUsernameExists)
+
+	if existingStatus != newStatus {
+		t.Errorf("登録済みのステータス = %d, 未登録 = %d (一致すべき)", existingStatus, newStatus)
+	}
+	if existingBody != newBody {
+		t.Errorf("登録済みと未登録で応答が異なります\n登録済み: %q\n未登録: %q", existingBody, newBody)
+	}
+	if !strings.Contains(existingBody, "登録済みの場合") {
+		t.Errorf("コードが届かない場合の案内が表示されていません: %q", existingBody)
+	}
+	if strings.Contains(existingBody, "送信しました") {
+		t.Errorf("登録済みのアドレスにはコードを送らないため、送信を断定する文言は使えません: %q", existingBody)
+	}
+}
+
+// TestSignupWeakPasswordCheckedBeforeCognito 弱いパスワードはCognitoへ送る前に拒否することを検証する。
+// Cognitoが登録済みの判定とポリシー判定のどちらを先に行っても、登録済みかどうかで応答が変わらないようにするため
+func TestSignupWeakPasswordCheckedBeforeCognito(t *testing.T) {
+	weak := []struct {
+		name     string
+		password string
+	}{
+		{"7文字", "Passw0r"},
+		{"英大文字なし", "passw0rd"},
+		{"英小文字なし", "PASSW0RD"},
+		{"数字なし", "Password"},
+	}
+	for _, tc := range weak {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &fakeCognito{signUpErr: cognito.ErrUsernameExists}
+			srv := newTestServer(t, c, &fakeRepo{}, &fakeVerifier{})
+			resp := postForm(t, srv, "/api/signup", url.Values{
+				"email":    {"someone@example.com"},
+				"password": {tc.password},
+			})
+			body := readBody(t, resp)
+			if !strings.Contains(body, "パスワードは8文字以上") {
+				t.Errorf("パスワードポリシーの案内が表示されていません: %q", body)
+			}
+			if c.signUpEmail != "" {
+				t.Errorf("弱いパスワードでSignUpが呼ばれました: %q", c.signUpEmail)
+			}
+		})
+	}
+}
+
+// TestSignupAcceptsMinimumPassword ポリシーをちょうど満たす8文字のパスワードはCognitoへ送ることを検証する
+func TestSignupAcceptsMinimumPassword(t *testing.T) {
+	c := &fakeCognito{}
+	srv := newTestServer(t, c, &fakeRepo{}, &fakeVerifier{})
+	postForm(t, srv, "/api/signup", url.Values{
+		"email":    {"someone@example.com"},
+		"password": {"Passw0rd"},
+	})
+	if c.signUpEmail != "someone@example.com" {
+		t.Errorf("ポリシーを満たすパスワードでSignUpが呼ばれていません: %q", c.signUpEmail)
+	}
+}
+
+// TestSignupInvalidPasswordShowsPolicy パスワードポリシー違反ではポリシーを案内し、確認コード画面へ進まないことを検証する
+func TestSignupInvalidPasswordShowsPolicy(t *testing.T) {
+	_, body := signupResponse(t, cognito.ErrInvalidPassword)
+	if !strings.Contains(body, "パスワードは8文字以上") {
+		t.Errorf("パスワードポリシーの案内が表示されていません: %q", body)
+	}
+	if strings.Contains(body, "確認コード") {
+		t.Errorf("ポリシー違反なのに確認コード画面が表示されています: %q", body)
+	}
+}
+
+// TestSignupUnexpectedErrorStaysGeneric 想定外のエラーは登録済みと同じ扱いにせず、一時的なエラーとして返すことを検証する
+func TestSignupUnexpectedErrorStaysGeneric(t *testing.T) {
+	_, body := signupResponse(t, errors.New("network down"))
+	if !strings.Contains(body, "一時的なエラーが発生しました") {
+		t.Errorf("一時的なエラーの文言が表示されていません: %q", body)
+	}
+	if strings.Contains(body, "確認コード") {
+		t.Errorf("想定外のエラーなのに確認コード画面が表示されています: %q", body)
+	}
+}
+
+// TestSignupRejectsMissingInput メールまたはパスワードが欠けた登録はCognitoへ送らずに入力を求めることを検証する
+func TestSignupRejectsMissingInput(t *testing.T) {
+	cases := []struct {
+		name     string
+		email    string
+		password string
+	}{
+		{"パスワードが空", "someone@example.com", ""},
+		{"メール形式が不正", "not-an-email", "Passw0rd!"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &fakeCognito{}
+			srv := newTestServer(t, c, &fakeRepo{}, &fakeVerifier{})
+			resp := postForm(t, srv, "/api/signup", url.Values{
+				"email":    {tc.email},
+				"password": {tc.password},
+			})
+			body := readBody(t, resp)
+			if !strings.Contains(body, "メールアドレスとパスワードを入力してください") {
+				t.Errorf("入力を求める文言が表示されていません: %q", body)
+			}
+			if c.signUpEmail != "" {
+				t.Errorf("不正な入力でSignUpが呼ばれました: %q", c.signUpEmail)
+			}
+		})
+	}
+}
+
+// TestConfirmRejectsMissingCode 確認コードが空のときはCognitoへ送らずに入力を求めることを検証する
+func TestConfirmRejectsMissingCode(t *testing.T) {
+	c := &fakeCognito{}
+	srv := newTestServer(t, c, &fakeRepo{}, &fakeVerifier{})
+	resp := postForm(t, srv, "/api/confirm", url.Values{
+		"email": {"someone@example.com"},
+		"code":  {"  "},
+	})
 	body := readBody(t, resp)
-	if !strings.Contains(body, "登録を受け付けられませんでした") {
-		t.Errorf("非断定の文言が表示されていません: %q", body)
+	if !strings.Contains(body, "確認コードを入力してください") {
+		t.Errorf("入力を求める文言が表示されていません: %q", body)
+	}
+	if c.confirmedEmail != "" {
+		t.Errorf("空のコードでConfirmSignUpが呼ばれました: %q", c.confirmedEmail)
+	}
+}
+
+// TestConfirmFailuresIndistinguishable 確認コードの失敗は原因によらず同じ応答を返すことを検証する。
+// 原因ごとに文言が変わると、任意のコードを送るだけで登録の有無が分かるため
+func TestConfirmFailuresIndistinguishable(t *testing.T) {
+	causes := []struct {
+		name string
+		err  error
+	}{
+		{"コードの不一致", cognito.ErrCodeMismatch},
+		{"コードの期限切れ", cognito.ErrExpiredCode},
+		{"確認済みユーザー", cognito.ErrNotAuthorized},
+		{"存在しないユーザー", cognito.ErrUserNotFound},
+	}
+	var want string
+	for _, tc := range causes {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newTestServer(t, &fakeCognito{confirmErr: tc.err}, &fakeRepo{}, &fakeVerifier{})
+			resp := postForm(t, srv, "/api/confirm", url.Values{
+				"email": {"someone@example.com"},
+				"code":  {"000000"},
+			})
+			body := readBody(t, resp)
+			if !strings.Contains(body, "確認コードが正しくないか、有効期限が切れています") {
+				t.Errorf("共通の失敗文言が表示されていません: %q", body)
+			}
+			if want == "" {
+				want = body
+			} else if body != want {
+				t.Errorf("原因によって応答が異なります\n%s: %q\n先頭の原因: %q", tc.name, body, want)
+			}
+		})
+	}
+}
+
+// TestConfirmUnexpectedErrorStaysGeneric 想定外のエラーは確認失敗と区別し、一時的なエラーとして扱うことを検証する
+func TestConfirmUnexpectedErrorStaysGeneric(t *testing.T) {
+	srv := newTestServer(t, &fakeCognito{confirmErr: errors.New("network down")}, &fakeRepo{}, &fakeVerifier{})
+	resp := postForm(t, srv, "/api/confirm", url.Values{
+		"email": {"someone@example.com"},
+		"code":  {"000000"},
+	})
+	body := readBody(t, resp)
+	if !strings.Contains(body, "一時的なエラーが発生しました") {
+		t.Errorf("一時的なエラーの文言が表示されていません: %q", body)
 	}
 }
 

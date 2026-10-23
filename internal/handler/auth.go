@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/mail"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/okamyuji/cognito-login-sample/internal/cognito"
 	"github.com/okamyuji/cognito-login-sample/internal/repository"
@@ -16,6 +17,19 @@ const sessionCookieName = "id_token"
 // genericLoginFailure 認証失敗時の共通メッセージ。
 // ユーザーの存在有無を区別しない文言によりアカウント列挙を防ぐ
 const genericLoginFailure = "メールアドレスまたはパスワードが正しくありません。"
+
+// passwordPolicyMessage パスワードポリシー違反時の案内
+const passwordPolicyMessage = "パスワードは8文字以上で、英大文字・英小文字・数字を含めてください。"
+
+// meetsPasswordPolicy terraform/main.tf の password_policy と同じ条件を満たすか判定する。
+// Cognitoが登録済みの判定とポリシーの判定のどちらを先に行うかは公式ドキュメントに記載がない。
+// 送る前にアプリで判定し、登録済みかどうかで応答が変わらないようにする。条件を変えるときは両方を直す
+func meetsPasswordPolicy(password string) bool {
+	return utf8.RuneCountInString(password) >= 8 &&
+		strings.ContainsAny(password, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") &&
+		strings.ContainsAny(password, "abcdefghijklmnopqrstuvwxyz") &&
+		strings.ContainsAny(password, "0123456789")
+}
 
 // validEmail メールアドレス形式の妥当性を検証する
 func validEmail(email string) bool {
@@ -131,20 +145,22 @@ func (h *Handler) signup(w http.ResponseWriter, r *http.Request) {
 	if h.googleOnlyGuard(w, r, email) {
 		return
 	}
-	if err := h.cognito.SignUp(r.Context(), email, password); err != nil {
+	if !meetsPasswordPolicy(password) {
+		h.renderFlash(w, "error", passwordPolicyMessage)
+		return
+	}
+	if err := h.cognito.SignUp(r.Context(), email, password); err != nil && !errors.Is(err, cognito.ErrUsernameExists) {
 		switch {
-		case errors.Is(err, cognito.ErrUsernameExists):
-			// 登録済みかどうかを断定しない文言によりアカウント列挙を防ぐ
-			h.renderFlash(w, "error", "登録を受け付けられませんでした。既に登録済みの場合はログインしてください。")
 		case errors.Is(err, cognito.ErrInvalidPassword):
-			h.renderFlash(w, "error", "パスワードは8文字以上で、英大文字・英小文字・数字を含めてください。")
+			h.renderFlash(w, "error", passwordPolicyMessage)
 		default:
 			h.logger.Error("仮登録に失敗しました", "error", err)
 			h.renderFlash(w, "error", "一時的なエラーが発生しました。しばらく待ってからやり直してください。")
 		}
 		return
 	}
-	h.renderPage(w, "confirm_form", map[string]string{"Email": email})
+	// 登録済み (UsernameExists) でも未登録と同じ画面を返す。応答の違いはアカウント列挙に使われるため
+	h.renderPage(w, "confirm_form", map[string]string{"Email": email, "Signup": "true"})
 }
 
 // confirm 確認コードによる本登録を処理する
@@ -157,10 +173,10 @@ func (h *Handler) confirm(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.cognito.ConfirmSignUp(r.Context(), email, code); err != nil {
 		switch {
-		case errors.Is(err, cognito.ErrCodeMismatch):
-			h.renderFlash(w, "error", "確認コードが一致しません。")
-		case errors.Is(err, cognito.ErrExpiredCode):
-			h.renderFlash(w, "error", "確認コードの期限が切れています。もう一度登録してください。")
+		case errors.Is(err, cognito.ErrCodeMismatch), errors.Is(err, cognito.ErrExpiredCode),
+			errors.Is(err, cognito.ErrNotAuthorized), errors.Is(err, cognito.ErrUserNotFound):
+			// 原因ごとに文言を変えると、任意のコードを送るだけで登録の有無が分かるためまとめる
+			h.renderFlash(w, "error", "確認コードが正しくないか、有効期限が切れています。コードを確かめ、期限切れの場合はもう一度登録してください。")
 		default:
 			h.logger.Error("本登録に失敗しました", "error", err)
 			h.renderFlash(w, "error", "一時的なエラーが発生しました。しばらく待ってからやり直してください。")

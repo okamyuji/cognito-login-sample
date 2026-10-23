@@ -11,7 +11,11 @@
 {{end}}
 
 {{define "confirm_form"}}
+{{if .Signup}}
+<div class="flash info">登録を受け付けました。未登録のメールアドレスであれば、{{.Email}} 宛に確認コードが届きます。すでに登録済みの場合はコードが届かないため、ログインしてください。</div>
+{{else}}
 <div class="flash info">確認コードを {{.Email}} 宛に送信しました。メールに記載のコードを入力してください。</div>
+{{end}}
 <form hx-post="/api/confirm" hx-target="#result" class="stack">
   <input type="hidden" name="email" value="{{.Email}}">
   <label for="code">確認コード</label>
