@@ -7,7 +7,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 )
 
 // TestInitiateAuthRequestShape 実APIと同じ形式のリクエストを組み立てることを検証する。
@@ -126,6 +128,72 @@ func TestSignUpRequestShape(t *testing.T) {
 	}
 }
 
+// TestNewHTTPClientSetsTimeout Cognitoが応答しないときに待ち続けないよう、タイムアウトを設定することを検証する
+func TestNewHTTPClientSetsTimeout(t *testing.T) {
+	c := NewHTTPClient("ap-northeast-1", "test-client-id", "test-secret")
+	if c.httpc.Timeout != 10*time.Second {
+		t.Errorf("タイムアウト = %v, want 10s", c.httpc.Timeout)
+	}
+}
+
+// failingCloseBody 読み取りは成功し、Closeだけが失敗するレスポンスボディ
+type failingCloseBody struct{ io.Reader }
+
+func (failingCloseBody) Close() error { return errors.New("close failed") }
+
+// roundTripFunc 関数をhttp.RoundTripperとして使うための型
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// TestCallReturnsCloseError レスポンスのクローズに失敗したときは成功扱いにせずエラーを返すことを検証する
+func TestCallReturnsCloseError(t *testing.T) {
+	c := NewHTTPClientWithEndpoint("https://cognito.invalid/", "test-client-id", "test-secret")
+	c.httpc = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: failingCloseBody{strings.NewReader(`{}`)}}, nil
+	})}
+
+	err := c.ResendConfirmationCode(context.Background(), "user@example.com")
+	if err == nil || !strings.Contains(err.Error(), "クローズに失敗しました") {
+		t.Errorf("ResendConfirmationCode() error = %v, want クローズの失敗", err)
+	}
+}
+
+// TestResendConfirmationCodeRequestShape 確認コードの再送が実APIと同じ形のリクエストになることを検証する
+func TestResendConfirmationCodeRequestShape(t *testing.T) {
+	var gotTarget string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotTarget = r.Header.Get("X-Amz-Target")
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("リクエストボディの読み取りに失敗しました: %v", err)
+		}
+		if err := json.Unmarshal(raw, &gotBody); err != nil {
+			t.Errorf("リクエストボディの解釈に失敗しました: %v", err)
+		}
+		if _, err := w.Write([]byte(`{"CodeDeliveryDetails": {"AttributeName": "email", "DeliveryMedium": "EMAIL"}}`)); err != nil {
+			t.Errorf("レスポンスの書き込みに失敗しました: %v", err)
+		}
+	}))
+	defer srv.Close()
+
+	c := NewHTTPClientWithEndpoint(srv.URL, "test-client-id", "test-secret")
+	if err := c.ResendConfirmationCode(context.Background(), "user@example.com"); err != nil {
+		t.Fatalf("ResendConfirmationCode() error = %v", err)
+	}
+
+	if gotTarget != "AWSCognitoIdentityProviderService.ResendConfirmationCode" {
+		t.Errorf("X-Amz-Target = %q, want %q", gotTarget, "AWSCognitoIdentityProviderService.ResendConfirmationCode")
+	}
+	if gotBody["ClientId"] != "test-client-id" || gotBody["Username"] != "user@example.com" {
+		t.Errorf("ClientId / Username = %v / %v, want test-client-id / user@example.com", gotBody["ClientId"], gotBody["Username"])
+	}
+	if want := ComputeSecretHash("user@example.com", "test-client-id", "test-secret"); gotBody["SecretHash"] != want {
+		t.Errorf("SecretHash = %v, want %q", gotBody["SecretHash"], want)
+	}
+}
+
 // TestErrorMapping 実Cognitoが返すエラーボディを各エラー値へ対応付けることを検証する。
 // __typeにサービス名前空間の接頭辞が付く形式も実挙動に合わせて含める
 func TestErrorMapping(t *testing.T) {
@@ -140,6 +208,12 @@ func TestErrorMapping(t *testing.T) {
 			status:  400,
 			body:    `{"__type":"NotAuthorizedException","message":"Incorrect username or password."}`,
 			wantErr: ErrNotAuthorized,
+		},
+		{
+			name:    "先頭が#だけの__typeも末尾の型名で対応付けられる",
+			status:  400,
+			body:    `{"__type":"#UserNotFoundException","message":"User does not exist."}`,
+			wantErr: ErrUserNotFound,
 		},
 		{
 			name:    "名前空間接頭辞付きの__typeも対応付けられる",

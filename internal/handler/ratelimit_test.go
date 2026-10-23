@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -55,5 +57,39 @@ func TestRateLimiterResetsAfterWindow(t *testing.T) {
 	now = now.Add(61 * time.Second)
 	if !l.allow("10.0.0.1") {
 		t.Error("ウィンドウ経過後のリクエストが拒否されました")
+	}
+}
+
+// TestRateLimiterKeepsCountWithinWindow ウィンドウの途中ではカウントがリセットされないことを検証する
+func TestRateLimiterKeepsCountWithinWindow(t *testing.T) {
+	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	l := newRateLimiter(1, 60)
+	l.now = func() time.Time { return now }
+
+	if !l.allow("10.0.0.1") {
+		t.Error("1回目が拒否されました")
+	}
+	now = now.Add(59 * time.Second)
+	if l.allow("10.0.0.1") {
+		t.Error("ウィンドウ内 (59秒後) の2回目が許可されました")
+	}
+}
+
+// TestRateLimiterWrapCountsByHostAcrossPorts 同じIPからのリクエストは送信元ポートが違っても同じ上限で数えることを検証する
+func TestRateLimiterWrapCountsByHostAcrossPorts(t *testing.T) {
+	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	l := newRateLimiter(1, 60)
+	l.now = func() time.Time { return now }
+	h := l.wrap(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+
+	want := []int{http.StatusOK, http.StatusTooManyRequests}
+	for i, addr := range []string{"192.0.2.1:1000", "192.0.2.1:2000"} {
+		req := httptest.NewRequest(http.MethodPost, "/api/login", nil)
+		req.RemoteAddr = addr
+		rec := httptest.NewRecorder()
+		h(rec, req)
+		if rec.Code != want[i] {
+			t.Errorf("%s からのリクエストのステータス = %d, want %d", addr, rec.Code, want[i])
+		}
 	}
 }

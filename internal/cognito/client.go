@@ -45,6 +45,8 @@ type Client interface {
 	SignUp(ctx context.Context, email, password string) error
 	// ConfirmSignUp メールで届いた確認コードにより仮登録を本登録へ昇格する
 	ConfirmSignUp(ctx context.Context, email, code string) error
+	// ResendConfirmationCode 仮登録の確認コードを送り直す
+	ResendConfirmationCode(ctx context.Context, email string) error
 	// InitiateAuth USER_PASSWORD_AUTHフローで認証しトークン一式を得る
 	InitiateAuth(ctx context.Context, email, password string) (*AuthResult, error)
 }

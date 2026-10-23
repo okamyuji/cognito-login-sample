@@ -29,6 +29,7 @@ type Handler struct {
 	cookieSecure   bool
 	googleLoginURL string
 	limiter        *rateLimiter
+	resendLimiter  *rateLimiter
 }
 
 // New 依存を注入してHandlerを生成する。
@@ -47,6 +48,7 @@ func New(c cognito.Client, r repository.UserRepository, v token.Verifier, logger
 		cookieSecure:   cookieSecure,
 		googleLoginURL: googleLoginURL,
 		limiter:        newRateLimiter(20, 60), // 1分あたり20リクエストをIP単位で許可する
+		resendLimiter:  newRateLimiter(1, 60),  // 確認コードの再送は宛先ごとに1分1回まで
 	}, nil
 }
 
@@ -59,6 +61,7 @@ func (h *Handler) Routes(staticFS fs.FS) http.Handler {
 	mux.HandleFunc("GET /auth/google", h.googleLogin)
 	mux.HandleFunc("POST /api/login", h.limiter.wrap(h.login))
 	mux.HandleFunc("POST /api/signup", h.limiter.wrap(h.signup))
+	mux.HandleFunc("POST /api/resend", h.limiter.wrap(h.resend))
 	mux.HandleFunc("POST /api/confirm", h.limiter.wrap(h.confirm))
 	mux.HandleFunc("POST /api/logout", h.logout)
 	mux.Handle("GET /{$}", h.requireAuth(http.HandlerFunc(h.home)))
