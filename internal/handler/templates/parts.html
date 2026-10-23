@@ -22,4 +22,9 @@
   <input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" required>
   <button type="submit">確認する</button>
 </form>
+<form hx-post="/api/resend" hx-target="#resend-result" class="stack">
+  <input type="hidden" name="email" value="{{.Email}}">
+  <button type="submit">確認コードを再送する</button>
+</form>
+<div id="resend-result"></div>
 {{end}}

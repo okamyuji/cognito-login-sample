@@ -72,6 +72,16 @@ func (c *HTTPClient) ConfirmSignUp(ctx context.Context, email, code string) erro
 	return c.call(ctx, "ConfirmSignUp", req, nil)
 }
 
+// ResendConfirmationCode 仮登録の確認コードを送り直す
+func (c *HTTPClient) ResendConfirmationCode(ctx context.Context, email string) error {
+	req := map[string]any{
+		"ClientId":   c.clientID,
+		"SecretHash": ComputeSecretHash(email, c.clientID, c.clientSecret),
+		"Username":   email,
+	}
+	return c.call(ctx, "ResendConfirmationCode", req, nil)
+}
+
 // initiateAuthResponse InitiateAuth成功時のレスポンスボディ
 type initiateAuthResponse struct {
 	AuthenticationResult struct {

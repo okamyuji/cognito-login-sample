@@ -176,7 +176,7 @@ func (h *Handler) confirm(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, cognito.ErrCodeMismatch), errors.Is(err, cognito.ErrExpiredCode),
 			errors.Is(err, cognito.ErrNotAuthorized), errors.Is(err, cognito.ErrUserNotFound):
 			// 原因ごとに文言を変えると、任意のコードを送るだけで登録の有無が分かるためまとめる
-			h.renderFlash(w, "error", "確認コードが正しくないか、有効期限が切れています。コードを確かめ、期限切れの場合はもう一度登録してください。")
+			h.renderFlash(w, "error", "確認コードが正しくないか、有効期限が切れています。コードを確かめ、期限切れの場合は確認コードを再送してください。")
 		default:
 			h.logger.Error("本登録に失敗しました", "error", err)
 			h.renderFlash(w, "error", "一時的なエラーが発生しました。しばらく待ってからやり直してください。")
@@ -184,6 +184,21 @@ func (h *Handler) confirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.renderFlash(w, "success", "登録が完了しました。ログインしてください。")
+}
+
+// resend 確認コードを送り直す。
+// Cognitoの結果によらず同じ応答を返す。存在しないユーザーや確認済みのユーザーだけ応答が変わると、
+// 再送から登録の有無が分かるため。失敗はログにだけ残す
+func (h *Handler) resend(w http.ResponseWriter, r *http.Request) {
+	email := strings.TrimSpace(r.FormValue("email"))
+	if !validEmail(email) {
+		h.renderFlash(w, "error", "メールアドレスを入力してください。")
+		return
+	}
+	if err := h.cognito.ResendConfirmationCode(r.Context(), email); err != nil {
+		h.logger.Info("確認コードの再送を受け付けませんでした", "error", err)
+	}
+	h.renderFlash(w, "info", "確認コードの再送を受け付けました。仮登録中のメールアドレスであれば、新しい確認コードが届きます。")
 }
 
 // logout セッションCookieを破棄してログイン画面へ誘導する

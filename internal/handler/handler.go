@@ -59,6 +59,7 @@ func (h *Handler) Routes(staticFS fs.FS) http.Handler {
 	mux.HandleFunc("GET /auth/google", h.googleLogin)
 	mux.HandleFunc("POST /api/login", h.limiter.wrap(h.login))
 	mux.HandleFunc("POST /api/signup", h.limiter.wrap(h.signup))
+	mux.HandleFunc("POST /api/resend", h.limiter.wrap(h.resend))
 	mux.HandleFunc("POST /api/confirm", h.limiter.wrap(h.confirm))
 	mux.HandleFunc("POST /api/logout", h.logout)
 	mux.Handle("GET /{$}", h.requireAuth(http.HandlerFunc(h.home)))

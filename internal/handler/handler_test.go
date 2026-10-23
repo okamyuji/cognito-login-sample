@@ -30,6 +30,13 @@ type fakeCognito struct {
 	confirmedCode  string
 	initiateEmail  string
 	initiatePasswd string
+	resendErr      error
+	resendEmail    string
+}
+
+func (f *fakeCognito) ResendConfirmationCode(_ context.Context, email string) error {
+	f.resendEmail = email
+	return f.resendErr
 }
 
 func (f *fakeCognito) SignUp(_ context.Context, email, _ string) error {
@@ -715,6 +722,81 @@ func TestConfirmFailuresIndistinguishable(t *testing.T) {
 				t.Errorf("原因によって応答が異なります\n%s: %q\n先頭の原因: %q", tc.name, body, want)
 			}
 		})
+	}
+}
+
+// TestConfirmFailureGuidesToResend 確認コードの失敗時は、登録のやり直しではなくコードの再送へ案内することを検証する。
+// 未確認のユーザーが登録をやり直してもUsernameExistsになり、新しいコードは届かないため
+func TestConfirmFailureGuidesToResend(t *testing.T) {
+	srv := newTestServer(t, &fakeCognito{confirmErr: cognito.ErrExpiredCode}, &fakeRepo{}, &fakeVerifier{})
+	resp := postForm(t, srv, "/api/confirm", url.Values{
+		"email": {"someone@example.com"},
+		"code":  {"000000"},
+	})
+	body := readBody(t, resp)
+	if !strings.Contains(body, "再送") {
+		t.Errorf("再送への案内が表示されていません: %q", body)
+	}
+	if strings.Contains(body, "もう一度登録") {
+		t.Errorf("登録のやり直しを案内しています: %q", body)
+	}
+}
+
+// TestConfirmFormOffersResend 確認コード画面に、同じメールアドレスで再送する手段があることを検証する
+func TestConfirmFormOffersResend(t *testing.T) {
+	_, body := signupResponse(t, nil)
+	if !strings.Contains(body, `hx-post="/api/resend"`) {
+		t.Errorf("確認コード画面に再送の手段がありません: %q", body)
+	}
+}
+
+// TestResendIndistinguishable 確認コードの再送は、Cognitoの結果によらず同じ応答を返すことを検証する。
+// 存在しないユーザーや確認済みのユーザーだけ応答が変わると、再送から登録の有無が分かるため
+func TestResendIndistinguishable(t *testing.T) {
+	outcomes := []struct {
+		name string
+		err  error
+	}{
+		{"送信成功", nil},
+		{"存在しないユーザー", cognito.ErrUserNotFound},
+		{"確認済みのユーザー", cognito.ErrInvalidPassword},
+		{"認可されない", cognito.ErrNotAuthorized},
+		{"上限超過", cognito.ErrLimitExceeded},
+		{"想定外のエラー", errors.New("network down")},
+	}
+	var want string
+	for _, tc := range outcomes {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &fakeCognito{resendErr: tc.err}
+			srv := newTestServer(t, c, &fakeRepo{}, &fakeVerifier{})
+			resp := postForm(t, srv, "/api/resend", url.Values{"email": {"someone@example.com"}})
+			body := readBody(t, resp)
+			if c.resendEmail != "someone@example.com" {
+				t.Errorf("ResendConfirmationCodeへ渡されたメール = %q, want someone@example.com", c.resendEmail)
+			}
+			if !strings.Contains(body, "再送を受け付けました") {
+				t.Errorf("再送受付の文言が表示されていません: %q", body)
+			}
+			if want == "" {
+				want = body
+			} else if body != want {
+				t.Errorf("結果によって応答が異なります\n%s: %q\n先頭の結果: %q", tc.name, body, want)
+			}
+		})
+	}
+}
+
+// TestResendRejectsInvalidEmail メールアドレスの形が不正な再送はCognitoへ送らずに入力を求めることを検証する
+func TestResendRejectsInvalidEmail(t *testing.T) {
+	c := &fakeCognito{}
+	srv := newTestServer(t, c, &fakeRepo{}, &fakeVerifier{})
+	resp := postForm(t, srv, "/api/resend", url.Values{"email": {"not-an-email"}})
+	body := readBody(t, resp)
+	if !strings.Contains(body, "メールアドレスを入力してください") {
+		t.Errorf("入力を求める文言が表示されていません: %q", body)
+	}
+	if c.resendEmail != "" {
+		t.Errorf("不正な入力でResendConfirmationCodeが呼ばれました: %q", c.resendEmail)
 	}
 }
 
