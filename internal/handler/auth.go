@@ -188,15 +188,19 @@ func (h *Handler) confirm(w http.ResponseWriter, r *http.Request) {
 
 // resend 確認コードを送り直す。
 // Cognitoの結果によらず同じ応答を返す。存在しないユーザーや確認済みのユーザーだけ応答が変わると、
-// 再送から登録の有無が分かるため。失敗はログにだけ残す
+// 再送から登録の有無が分かるため。失敗はログにだけ残す。
+// IP単位の制限だけでは、IPを変えながら同じ人へ確認メールを送り続けさせられるため、宛先ごとにも制限する
 func (h *Handler) resend(w http.ResponseWriter, r *http.Request) {
 	email := strings.TrimSpace(r.FormValue("email"))
 	if !validEmail(email) {
 		h.renderFlash(w, "error", "メールアドレスを入力してください。")
 		return
 	}
-	if err := h.cognito.ResendConfirmationCode(r.Context(), email); err != nil {
-		h.logger.Info("確認コードの再送を受け付けませんでした", "error", err)
+	// 大文字と小文字だけが違うアドレスは同じ受信箱に届くため、まとめて数える
+	if h.resendLimiter.allow(strings.ToLower(email)) {
+		if err := h.cognito.ResendConfirmationCode(r.Context(), email); err != nil {
+			h.logger.Info("確認コードの再送を受け付けませんでした", "error", err)
+		}
 	}
 	h.renderFlash(w, "info", "確認コードの再送を受け付けました。仮登録中のメールアドレスであれば、新しい確認コードが届きます。")
 }

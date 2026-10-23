@@ -786,6 +786,33 @@ func TestResendIndistinguishable(t *testing.T) {
 	}
 }
 
+// TestResendCoolsDownPerEmail 同じアドレスへの再送は一定時間に1回だけCognitoへ送り、応答は変えないことを検証する。
+// IPを変えながら同じ人へ確認メールを送り続けさせる悪用を防ぐため
+func TestResendCoolsDownPerEmail(t *testing.T) {
+	c := &fakeCognito{}
+	srv := newTestServer(t, c, &fakeRepo{}, &fakeVerifier{})
+
+	first := readBody(t, postForm(t, srv, "/api/resend", url.Values{"email": {"someone@example.com"}}))
+	c.resendEmail = ""
+	second := readBody(t, postForm(t, srv, "/api/resend", url.Values{"email": {"someone@example.com"}}))
+	if c.resendEmail != "" {
+		t.Errorf("同じアドレスへの2回目の再送がCognitoへ送られました")
+	}
+	if second != first {
+		t.Errorf("2回目の応答が1回目と異なります\n1回目: %q\n2回目: %q", first, second)
+	}
+
+	readBody(t, postForm(t, srv, "/api/resend", url.Values{"email": {"someone@EXAMPLE.com"}}))
+	if c.resendEmail != "" {
+		t.Errorf("大文字と小文字を変えただけの同じアドレスへの再送がCognitoへ送られました")
+	}
+
+	readBody(t, postForm(t, srv, "/api/resend", url.Values{"email": {"other@example.com"}}))
+	if c.resendEmail != "other@example.com" {
+		t.Errorf("別のアドレスへの再送がCognitoへ送られていません: %q", c.resendEmail)
+	}
+}
+
 // TestResendRejectsInvalidEmail メールアドレスの形が不正な再送はCognitoへ送らずに入力を求めることを検証する
 func TestResendRejectsInvalidEmail(t *testing.T) {
 	c := &fakeCognito{}
